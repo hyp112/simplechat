@@ -3,7 +3,9 @@ import json
 import os
 import boto3
 import re  # 正規表現モジュールをインポート
+import urllib.request
 from botocore.exceptions import ClientError
+
 
 
 # Lambda コンテキストからリージョンを抽出する関数
@@ -30,6 +32,9 @@ def lambda_handler(event, context):
             print(f"Initialized Bedrock client in region: {region}")
         
         print("Received event:", json.dumps(event))
+
+        # Colab上のFastAPIのURL（環境変数 or 直書き）
+        API_URL = os.environ.get("COLAB_API_URL", "https://6c6f-34-142-236-34.ngrok-free.app/generate")
         
         # Cognitoで認証されたユーザー情報を取得
         user_info = None
@@ -71,27 +76,37 @@ def lambda_handler(event, context):
         
         # invoke_model用のリクエストペイロード
         request_payload = {
-            "messages": bedrock_messages,
-            "inferenceConfig": {
-                "maxTokens": 512,
-                "stopSequences": [],
-                "temperature": 0.7,
-                "topP": 0.9
-            }
+          "prompt": "string",
+          "max_new_tokens": 512,
+          "do_sample": true,
+          "temperature": 0.7,
+          "top_p": 0.9
         }
         
         print("Calling Bedrock invoke_model API with payload:", json.dumps(request_payload))
         
         # invoke_model APIを呼び出し
-        response = bedrock_client.invoke_model(
-            modelId=MODEL_ID,
-            body=json.dumps(request_payload),
-            contentType="application/json"
+        #response = bedrock_client.invoke_model(
+        #    modelId=MODEL_ID,
+        #    body=json.dumps(request_payload),
+        #    contentType="application/json"
+        #)
+
+        # HTTPリクエストを送信
+        response = urllib.request.Request(
+            API_URL,
+            data=json.dumps(request_payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST"
         )
-        
         # レスポンスを解析
+        with urllib.request.urlopen(response) as res:
+            res_body = res.read().decode("utf-8")
+            res_json = json.loads(res_body)
+            assistant_response = res_json["generated_text"]
+        
         response_body = json.loads(response['body'].read())
-        print("Bedrock response:", json.dumps(response_body, default=str))
+        print("Bedrock response:", json.dumps(assistant_response, default=str))
         
         # 応答の検証
         if not response_body.get('output') or not response_body['output'].get('message') or not response_body['output']['message'].get('content'):
